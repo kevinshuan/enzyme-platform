@@ -4,6 +4,16 @@
 **Created**: 2026-02-24
 **Status**: Draft
 
+## Clarifications
+
+### Session 2026-02-24
+
+- Q: Are generation results stored server-side after the response is returned? → A: No persistence — stateless; results returned in response only.
+- Q: Can researchers export results to a file from the dashboard? → A: CSV download — a button exports the full ranked candidate list as a `.csv` file.
+- Q: Does the API require authentication or access control? → A: No authentication — API is open; access controlled by network/deployment (localhost only in MVP).
+- Q: What is the tie-breaking rule when two candidates share the same final score? → A: Secondary sort by biological score descending.
+- Q: Can researchers manage conserved positions through the dashboard? → A: No — file edit only; researchers edit `config/conserved_regions.json` directly.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Generate Ranked Mutation Candidates (Priority: P1)
@@ -125,8 +135,8 @@ matches the expected ranking from the API.
   sequence with a high mutation rate? (Must not crash; may produce warnings about limited sequence diversity.)
 - What happens when scoring weights sum to 0.9999 due to floating-point rounding? (System MUST
   accept values within a tolerance of ±0.001.)
-- How are tied final scores handled in ranking? (System MUST define a deterministic tie-breaking
-  rule, documented in the API response.)
+- How are tied final scores handled in ranking? Primary sort: final score descending. Tie-break:
+  biological score descending. Rule is documented in the API response schema.
 
 ## Requirements *(mandatory)*
 
@@ -146,8 +156,9 @@ matches the expected ranking from the API.
   candidate generation.
 - **FR-007**: System MUST limit mutation count per candidate to a configurable maximum threshold;
   candidates exceeding this threshold MUST be discarded and regenerated.
-- **FR-008**: System MUST rank candidates in descending order by a weighted combination of the
-  three dimension scores.
+- **FR-008**: System MUST rank candidates in descending order by final weighted score. Ties MUST
+  be broken by biological score descending. The tie-breaking rule MUST be documented in the API
+  response schema.
 - **FR-009**: System MUST allow users to configure scoring weights for each dimension; weights MUST
   sum to 1.0 (within ±0.001 tolerance).
 - **FR-010**: System MUST apply default weights (biological 0.3, carbon 0.4, feasibility 0.3) when
@@ -165,6 +176,8 @@ matches the expected ranking from the API.
   visualising results without writing code.
 - **FR-017**: Dashboard MUST display: a score distribution histogram, a carbon-vs-feasibility
   scatter plot, and a ranked table of the top 10 candidates.
+- **FR-018**: Dashboard MUST provide a "Download CSV" button that exports the full ranked
+  candidate list (all candidates, all four scores, mutation positions) as a `.csv` file.
 
 ### Key Entities
 
@@ -174,7 +187,8 @@ matches the expected ranking from the API.
 - **Scoring Weights**: A user-supplied or default configuration specifying the relative importance
   of each scoring dimension. Governs how the final score is computed. Must sum to 1.0.
 - **Conservation Map**: A configuration listing amino acid positions that are biologically critical
-  and MUST NOT be mutated. Loaded from a project configuration file; shared across all runs.
+  and MUST NOT be mutated. Loaded from `config/conserved_regions.json` at startup; shared across
+  all runs. Managed by direct file edit only — no dashboard UI for this entity.
 - **Generation Request**: A single invocation specifying the base sequence, mutation rate, candidate
   count, optional seed, and optional scoring weights. Produces one ranked result set.
 
@@ -200,8 +214,14 @@ matches the expected ranking from the API.
 ## Assumptions
 
 - The platform is a single-user research tool in MVP phase; concurrent multi-user access and
-  authentication are out of scope for this feature.
-- Conservation map is a static project-level configuration, not per-request user input.
+  authentication are out of scope. The API requires no authentication and is expected to run
+  on localhost or a private network only. No API key or session management is implemented in MVP.
+- The system is stateless — generation results are NOT stored server-side. Results are returned
+  in the API response only. Users who need to retain results must save them locally. The
+  seed-based reproducibility (FR-011, FR-012) is the mechanism for re-running identical
+  experiments.
+- Conservation map is a static project-level configuration, not per-request user input. It is
+  managed by editing `config/conserved_regions.json` directly; no dashboard interface is provided.
 - The biological, carbon, and feasibility scores are proxy metrics; no claim of biological
   accuracy is made, and the platform is not designed to replace wet-lab validation.
 - GPU acceleration is NOT required for the MVP; all proxy scoring runs on CPU. BioNeMo/GPU
