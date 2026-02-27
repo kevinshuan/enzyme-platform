@@ -14,7 +14,11 @@ from app.models import (
     GenerateResponse,
     ResponseMeta,
 )
-from generation.mock_generator import generate_candidates
+import os as _os
+if _os.getenv("GENERATOR_BACKEND", "mock") == "bionemo":
+    from generation.bionemo_generator import generate_candidates
+else:
+    from generation.mock_generator import generate_candidates
 from ranking.weighted import rank_candidates
 from scoring.biological import score_biological
 from scoring.carbon import score_carbon
