@@ -96,7 +96,7 @@ POST /generate
   └── validate sequence
   └── np.random.default_rng(seed)   ← single RNG for full reproducibility
   └── generate_candidates()         ← mock_generator.py  (swap for BioNeMo)
-  └── score_biological()            ← Kyte-Doolittle hydrophobicity
+  └── score_biological()            ← BLOSUM62 substitution stability
   └── score_carbon()                ← efficiency / deployment / cost proxy
   └── score_feasibility()           ← difficulty + manufacturability
   └── rank_candidates()             ← final_score DESC, bio_score DESC on tie
@@ -112,7 +112,8 @@ implements `generation/interface.py:GeneratorInterface`. No other files change.
 
 ### Biological (`scoring/biological.py`)
 ```
-stability      = 1 − |mean_hydro(base) − mean_hydro(mutated)| / 9.0
+stability      = mean(normalize(BLOSUM62[base_aa][mut_aa]) for each mutation)
+               = mean((BLOSUM62_score + 4) / 7)   -- [0, 1], 1.0 if no mutations
 mutation_pen   = mutation_count / len(sequence)
 conserved_pen  = mutations_in_conserved / mutation_count
 bio_score      = 0.4·stability + 0.4·(1−mutation_pen) + 0.2·(1−conserved_pen)
@@ -120,19 +121,24 @@ bio_score      = 0.4·stability + 0.4·(1−mutation_pen) + 0.2·(1−conserved_
 
 ### Carbon impact (`scoring/carbon.py`)
 ```
-efficiency_gain  = rng.uniform(0.9, 1.2)          # CO₂ conversion proxy
-norm_efficiency  = (efficiency_gain − 0.9) / 0.3
+polar_fraction   = |polar_residues| / len(sequence)    # polar = {S,T,N,Q,D,E,K,R,H,Y}
+charge_neutrality= max(0, 1 − |net_charge_per_residue| / 0.5)   # pH 7.4, CA optimum
+co2_efficiency   = 0.5·polar_fraction + 0.5·charge_neutrality   # deterministic, [0,1]
 production_cost  = min(1.0, mutation_count × 0.01)
-raw              = norm_efficiency × stability − production_cost
+raw              = co2_efficiency × stability − production_cost
 carbon_score     = (raw + 1.0) / 2.0              # rescale [−1,1] → [0,1]
 ```
 
 ### Commercial feasibility (`scoring/feasibility.py`)
 ```
-difficulty         = mutation_count / max_mutation_threshold
-manufacturability  = stability
-feasibility_score  = 0.5·(1−difficulty) + 0.5·manufacturability
+challenging_frac = (Cys_count + Trp_count) / len(sequence)
+manufacturability= max(0, 1 − challenging_frac / 0.20)   -- C/W expression burden [0,1]
+difficulty       = mutation_count / max_mutation_threshold
+feasibility_score= 0.5·(1−difficulty) + 0.5·manufacturability
 ```
+`manufacturability` is derived from sequence composition (Cys/Trp fraction) and is
+independent of the biological stability score, eliminating cross-scorer double-counting.
+
 
 ---
 

@@ -101,8 +101,8 @@ def generate(request: GenerateRequest) -> GenerateResponse:
         datetime.now(timezone.utc).isoformat(),
     )
 
-    # US3: single rng instance — passed through generator AND carbon scorer
-    # to guarantee byte-identical output for the same seed.
+    # US3: single rng instance — passed through generator to guarantee
+    # byte-identical candidate generation for the same seed.
     rng = np.random.default_rng(seed)
 
     # Generate candidates
@@ -122,10 +122,9 @@ def generate(request: GenerateRequest) -> GenerateResponse:
     # carbon and feasibility scorers to avoid redundant computation)
     for candidate in candidates:
         bio = score_biological(candidate, conserved_positions)
-        carbon = score_carbon(candidate, stability_score=bio, rng=rng)
+        carbon = score_carbon(candidate, stability_score=bio)
         feasibility = score_feasibility(
             candidate,
-            stability_score=bio,
             max_mutation_threshold=max_mutation_threshold,
         )
         candidate.bio_score = bio
