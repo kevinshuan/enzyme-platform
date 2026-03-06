@@ -15,21 +15,19 @@ and interactive Streamlit dashboard.
 ### 1 — Install dependencies
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+make install        # or: uv sync --group dev
 ```
 
 ### 2 — Start the API (Terminal 1)
 
 ```bash
-uvicorn app.main:app --port 8000 --reload
+make api            # or: uv run uvicorn app.main:app --port 8000 --reload
 ```
 
 ### 3 — Start the dashboard (Terminal 2)
 
 ```bash
-streamlit run dashboard/app.py
+make dashboard      # or: uv run streamlit run dashboard/app.py
 ```
 
 Open your browser at `http://localhost:8501`.
