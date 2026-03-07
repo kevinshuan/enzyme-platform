@@ -1,449 +1,219 @@
-# FastAPI Template
+# AI-Designed Carbon-Reducing Enzyme Platform
 
-A clean and modular FastAPI project template designed for production-ready applications, inspired by https://github.com/zhanymkanov/fastapi-best-practices. This repo ships a micro-service style, feature/module-oriented layout with a shared global layer, plus Docker, GitLab CI, Alembic config, and a simple HTML template for quick UI demos.
+A modular FastAPI pipeline that generates mutated Carbonic Anhydrase-like enzyme candidates,
+scores them across three dimensions, ranks them, and exposes results via a REST API
+and interactive Streamlit dashboard.
+
+> **Disclaimer**: All scores are simulation proxies. No wet-lab validation has been
+> performed. This is an MVP mock generator designed for drop-in replacement with
+> NVIDIA BioNeMo inference in Phase 2.
+
+---
 
 ## 📁 Project Structure
 
 ```
-fastapi-template/
-├── alembic.ini               # Alembic configuration (create alembic/ on init)
-├── docker-compose.yml        # App + Postgres service definitions
-├── Dockerfile                # Container build (uv + uvicorn)
-├── Makefile                  # Local developer commands
-├── scripts/
-│   ├── bootstrap.sh          # Interactive project bootstrap helper
-│   └── new_feature.sh        # Feature scaffold generator (`make new-feature`)
-├── logging.ini               # Placeholder only (default runtime logging uses Loguru)
-├── pytest.ini                # Pytest settings (pythonpath, markers, discovery)
-├── src/                      # Application source (PYTHONPATH=src)
-│   ├── main.py               # FastAPI app entrypoint + CORS + healthcheck
-│   ├── config.py             # Global config settings (shared)
-│   ├── database.py           # Shared async DB factory/base + DI session dependency
-│   ├── exceptions.py         # Shared exception types (extend as needed)
-│   ├── logging_config.py     # Loguru setup + shutdown hook
-│   ├── models.py             # Shared model mixins/base entities
-│   ├── pagination.py         # Shared pagination utilities (placeholder)
-│   └── <feature_name>/       # Project-defined feature module(s)
-│       ├── __init__.py       # Feature package marker
-│       ├── config.py         # Feature-only configuration (prefix-based, shared env source)
-│       ├── constants.py      # Feature constants
-│       ├── dependencies.py   # Feature-specific dependencies
-│       ├── exceptions.py     # Feature-specific exceptions
-│       ├── models.py         # Feature models
-│       ├── router.py         # APIRouter endpoints
-│       ├── schemas.py        # Pydantic schemas
-│       ├── service.py        # Or `service/` package + `__init__.py`
-│       └── utils.py          # Feature utility helpers
-├── templates/                # Jinja2 templates (HTML demo)
-│   ├── feature_scaffold/     # Source scaffold copied by `make new-feature`
-│   │   ├── __init__.py
-│   │   ├── router.py
-│   │   ├── schemas.py
-│   │   ├── service.py
-│   │   └── ...
-│   └── index.html            # Placeholder UI demo page
-├── tests/                    # Pytest test suite
-│   └── test_main.py          # Basic health/root test
-├── .env.example              # Environment variable template (placeholder)
-├── .dockerignore             # Docker ignore rules
-├── .gitignore                # Git ignore rules
-├── .gitlab-ci.yml            # GitLab CI (lint + tests)
-└── README.md                 # This file
+enzyme-platform/
+├── src/                              # Application source (PYTHONPATH=src)
+│   ├── main.py                       # FastAPI app entrypoint + CORS + lifespan
+│   ├── config.py                     # GlobalSettings (GLOBAL_ prefix, pydantic-settings)
+│   ├── logging_config.py             # Loguru setup + shutdown hook
+│   └── enzyme/                       # Enzyme feature module
+│       ├── config.py                 # Loads config/*.json at startup
+│       ├── constants.py              # AMINO_ACIDS, VALID_AA
+│       ├── dependencies.py           # FastAPI DI helpers
+│       ├── exceptions.py             # Feature exceptions
+│       ├── models.py                 # EnzymeCandidate (internal domain model)
+│       ├── schemas.py                # Pydantic request/response schemas
+│       ├── router.py                 # APIRouter: POST /generate, GET /health
+│       ├── utils.py                  # validate_sequence helper
+│       └── service/
+│           ├── generator.py          # Mock generator (swap for BioNeMo in Phase 2)
+│           ├── ranking.py            # Weighted ranker with tie-breaking
+│           └── scoring/
+│               ├── biological.py     # BLOSUM62 stability scorer
+│               ├── carbon.py         # CO₂ efficiency scorer
+│               └── feasibility.py    # Manufacturability scorer
+├── config/
+│   ├── conserved_regions.json        # 0-indexed positions that must not be mutated
+│   └── weights.json                  # Default scoring weights + max_mutation_threshold
+├── dashboard/
+│   └── app.py                        # Streamlit dashboard (calls API via HTTP)
+├── tests/
+│   ├── conftest.py                   # Shared fixtures
+│   ├── test_main.py                  # API smoke test
+│   └── unit/                         # Unit tests for all scorers
+├── Makefile                          # Local developer commands
+├── pyproject.toml                    # Project metadata + dependencies (uv)
+├── pytest.ini                        # Pytest configuration
+├── Dockerfile                        # Container build
+├── docker-compose.yml                # App service definition
+└── .env.example                      # Environment variable template
 ```
-
-Note: this template keeps `src/` clean by default. Create project feature folders with `make new-feature name=<feature_name>`, which copies `templates/feature_scaffold/` into `src/<feature_name>/`. Runtime logging is configured via `src/logging_config.py` (Loguru). Some files are scaffold placeholders for project-specific implementation (for example `.env.example` and migration files). Local development uses a single root `.env` file; feature settings use prefixes but read from the same shared environment source.
-
-Dependency management in this template is **uv-only**. Do not use `requirements/*.txt` files.
-
-## 🧱 Development Architecture
-
-- This template follows a micro-service-style FastAPI architecture: one app, split into feature modules under `src/`.
-- Create feature folders that match your project domains with `make new-feature name=<feature_name>`.
-- Put cross-feature/app-wide concerns in global `src/`.
-- Put feature-owned concerns in `src/<feature>/`.
-- Rule of thumb:
-  - Shared across 2+ features or needed at app bootstrap -> `src/`
-  - Used by only one feature -> `src/<feature>/`
-
-### Global layer (`src/`)
-- `main.py`: app bootstrap, middleware, lifespan, and router registration.
-- `config.py`: shared/global settings (`GlobalSettings`, `GLOBAL_` prefix).
-- `database.py`: async SQLAlchemy engine/session factory/base and `get_session`.
-- `models.py`: shared model mixins/base entities.
-- `exceptions.py` and `pagination.py`: shared cross-feature utilities.
-- `logging_config.py`: centralized Loguru configuration.
-
-### Feature layer (`src/<feature>/`)
-- `config.py`: feature-only settings and env prefix (for example `PAYMENTS_`), loaded from the same shared environment source as global settings.
-- `models.py`: feature-owned database models.
-- `schemas.py`: feature request/response/update schemas.
-- `router.py`: HTTP contract layer for that feature.
-- `service.py` or `service/`: business logic and database operations.
-- `dependencies.py`: feature dependency wiring.
-- `exceptions.py`, `constants.py`, `utils.py`: feature-local supporting modules.
-
-### Development patterns
-- Create new feature modules with `make new-feature name=<feature_name>`.
-- Keep routers thin; put business logic in the feature service layer.
-- Start with `service.py`; if feature complexity grows, split into a `service/` package.
-- When using `service/`, include `service/__init__.py` and re-export the public service API for clean imports (for example: `from src.<feature>.service import ...`).
-- Keep schema definitions in `schemas.py`; avoid ad hoc dict contracts in routers.
-- Keep DB engine/sessionmaker creation centralized in `src/database.py`.
-- Create DB resources in app lifespan when `GLOBAL_DATABASE_URL` is set, store them in `app.state`, and resolve sessions via DI (`Depends(get_session)`).
-- For DB-backed services, perform a startup readiness query (for example `SELECT 1`) in app lifespan and dispose the engine on shutdown.
-- Treat `pool_pre_ping` as connection checkout validation, not as an app startup readiness check.
-- Keep shared config in `src/config.py`; keep feature-only config in feature `config.py`.
-- Use one root `.env` file for local development and distinct env prefixes for each settings class.
-- Register new feature routers in `src/main.py`.
-
-## ⚙️ Project Setup
-
-### Quick Start (Recommended)
-
-1. Clone this template and enter the project directory.
-
-```bash
-git clone git@gitlab.cedarsdigital.io:factor-pm/fastapi_template.git temp-project
-mv temp-project <your_new_project_name>
-cd <your_new_project_name>
-```
-
-2. Ask your agent to initialize this cloned template as a new project (do not run the service yet).
-
-### Start a New Project from This Template
-
-#### 1. clone and create new repo
-```bash
-git clone git@gitlab.cedarsdigital.io:factor-pm/fastapi_template.git temp-project
-mv temp-project <your_new_project_name>
-cd <your_new_project_name>
-rm -rf .git
-```
-
-#### 2. Initial New Project
-```bash
-git init
-uv python pin <python_version_of_your_project>
-uv init
-uv venv
-source .venv/bin/activate
-```
-
-#### 3. Initialize project dependencies
-```bash
-make init
-```
-
-#### 4. Create local environment file
-```bash
-cp .env.example .env
-```
-
-Update values in `.env` for your local environment.
-
-#### 5. Add remote Repo & Push first commit
-```
-git remote add origin <your_git_remote_url>
-git add .
-git commit -m ":tada: initial commit for <your_new_project_name>"
-git branch -M main
-git push -u origin main
-```
-
-#### Optional: one-step bootstrap
-If you prefer a guided setup, run the bootstrap script after cloning:
-
-```bash
-bash scripts/bootstrap.sh
-```
-
-The script will ask for project name, remote URL, Python version, and whether to run `make init` for dependencies. It also removes itself before the initial commit.
-The script re-initializes git, pins Python, creates the virtual environment, can run `make init`, and creates `.env` from `.env.example` when missing.
-
-## 🧪 Example Files
-
-### Example `src/config.py`
-
-The snippet below shows a typical global settings pattern using `pydantic-settings`. It defaults to the repository root `.env` file for local development, supports `ENV_FILE` override when needed, and prefixes environment variables with `GLOBAL_`.
-
-```python
-# src/config.py
-import os
-from pathlib import Path
-from typing import ClassVar
-
-from pydantic import ConfigDict
-from pydantic_settings import BaseSettings
-
-
-class GlobalSettings(BaseSettings):
-    env_file_path: ClassVar[Path] = Path(
-        os.getenv("ENV_FILE", str(Path(__file__).resolve().parents[1] / ".env"))
-    ).expanduser()
-    model_config = ConfigDict(
-        env_prefix="GLOBAL_",
-        env_file=str(env_file_path) if env_file_path.exists() else None,
-    )
-    database_url: str | None = None
-    db_pool_size: int = 10
-    db_max_overflow: int = 20
-    db_pool_timeout: int = 30
-    db_pool_recycle: int = 1800
-
-
-# Instantiate
-global_settings = GlobalSettings()
-```
-
-### Example `src/database.py`
-
-The snippet below shows an async SQLAlchemy 2.0 setup using `psycopg` + `AsyncAdaptedQueuePool`, with SSL enabled for non-local environments (dev/uat/prod) and skipped for localhost. The engine/sessionmaker are created in lifespan and stored on `app.state`; request handlers use `Depends(get_session)`.
-
-```python
-# src/database.py
-from fastapi import Request
-from sqlalchemy.engine.url import make_url
-from sqlalchemy.ext.asyncio import (
-    AsyncEngine,
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
-)
-from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.pool import AsyncAdaptedQueuePool
-
-
-# SQLAlchemy 2.0 recommended base class
-class Base(DeclarativeBase):
-    pass
-
-def _as_async_url(url: str) -> str:
-    """Ensure psycopg driver and async format."""
-    db_url = make_url(url)
-    if (
-        db_url.drivername.startswith("postgresql")
-        and "+psycopg" not in db_url.drivername
-    ):
-        db_url = db_url.set(drivername="postgresql+psycopg")
-    return db_url.render_as_string(hide_password=False)
-
-
-def _is_local(db_url) -> bool:
-    """Check local/dev hosts, including common Docker names."""
-    host = db_url.host or ""
-    return host in {"localhost", "127.0.0.1", "db", "postgres"}
-
-
-def _has_explicit_ssl(db_url) -> bool:
-    """Check if SSL parameters are already present."""
-    return any(
-        key in (db_url.query or {})
-        for key in ("ssl", "sslmode", "sslrootcert", "sslcert", "sslkey")
-    )
-
-
-def create_engine_and_sessionmaker(
-    url: str,
-    *,
-    pool_size: int,
-    max_overflow: int,
-    pool_timeout: int,
-    pool_recycle: int,
-) -> tuple[AsyncEngine, async_sessionmaker[AsyncSession]]:
-    db_url = make_url(_as_async_url(url))
-
-    if not _is_local(db_url) and not _has_explicit_ssl(db_url):
-        query_params = dict(db_url.query)
-        query_params["sslmode"] = "require"
-        db_url = db_url.set(query=query_params)
-
-    final_async_url = db_url.render_as_string(hide_password=False)
-    connect_args = {"prepare_threshold": 0}
-    pool_kwargs = {
-        "poolclass": AsyncAdaptedQueuePool,
-        "pool_size": pool_size,
-        "max_overflow": max_overflow,
-        "pool_timeout": pool_timeout,
-        "pool_recycle": pool_recycle,
-        "pool_pre_ping": True,
-        "connect_args": connect_args,
-    }
-    engine = create_async_engine(final_async_url, **pool_kwargs)
-    session_factory = async_sessionmaker(
-        bind=engine, expire_on_commit=False, class_=AsyncSession
-    )
-    return engine, session_factory
-
-
-def _require_sessionmaker(
-    request: Request,
-) -> async_sessionmaker[AsyncSession]:
-    sessionmaker = getattr(request.app.state, "sessionmaker", None)
-    if sessionmaker is None:
-        raise RuntimeError("Database sessionmaker is not initialized.")
-    return sessionmaker
-
-
-async def get_session(request: Request):
-    """FastAPI dependency: provide a DB session from app.state."""
-    sessionmaker = _require_sessionmaker(request)
-    async with sessionmaker() as db:
-        yield db
-```
-
-### Example `src/models.py`
-
-The snippet below shows a minimal SQLAlchemy 2.0 model using `Mapped` and `mapped_column`. It is meant as a simple example that teams can replace with their domain models.
-
-```python
-# src/models.py
-from datetime import datetime
-
-from sqlalchemy import String
-from sqlalchemy.orm import Mapped, mapped_column
-
-from database import Base
-
-
-class ExampleModel(Base):
-    __tablename__ = "example_models"
-
-    id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
-```
-
-## 🧰 Makefile Usage
-
-### Default Makefile Usage
-
-```bash
-make init
-make install
-```
-
-- `make init`: initialize baseline dependencies for a new project cloned from this template.
-- `make install`: sync dependencies from lockfile (`uv sync --frozen --no-cache`).
-- `make sync-dev`: sync dev dependency group.
-- `make sync-prod`: sync runtime-only dependencies (no dev extras).
-
-### Environment Dependency Management (UV)
-
-- This template uses only two dependency scopes:
-  - Runtime (production) dependencies.
-  - Development dependencies (`--dev`) for tools like `pytest`, `ruff`, etc.
-- How to choose scope:
-  - Use runtime (`uv add`) if the package is needed by deployed/running app code in `src/`.
-  - Use dev (`uv add --dev`) only for non-runtime tooling (tests, lint, notebooks, local scripts).
-  - Do not choose `--dev` just because you are currently developing.
-- Add dependencies:
-  - Runtime: `uv add <package>`
-  - Dev: `uv add --dev <package>`
-- Remove dependencies:
-  - Runtime: `uv remove <package>`
-  - Dev: `uv remove --dev <package>`
-- Sync dependencies:
-  - Dev (default local): `uv sync --frozen --no-cache`
-  - Runtime only: `uv sync --frozen --no-cache --no-dev`
-- Examples:
-  - Runtime: `fastapi`, `uvicorn`, `sqlalchemy`, `psycopg`, `pydantic-settings`, `loguru`, `alembic`
-  - Dev-only: `pytest`, `ruff`, `ipykernel`, `httpx` (if only used in tests)
-- Do not add or maintain `requirements/` files in this template.
-
-### Create A New Feature Module
-
-```bash
-make new-feature name=users
-```
-
-- `make new-feature name=<feature_name>`: create `src/<feature_name>/` from `templates/feature_scaffold/`.
-
-### Run App (Dev)
-
-```bash
-make run
-```
-
-### Run Tests
-
-```bash
-make test
-```
-
-- Test runner: `pytest`.
-- Test files should be under `tests/` and follow `test_*.py`.
-- High coverage is expected for new/changed code:
-  - cover happy path, edge cases, and error paths
-  - avoid shipping endpoint/business-logic changes without meaningful tests
-
-### Pytest Configuration (`pytest.ini`)
-
-- `pytest.ini` in repo root is the source of truth for test behavior.
-- Current key settings:
-  - `pythonpath = src`
-  - `testpaths = tests`
-  - naming: `python_files = test_*.py`, `python_classes = Test*`, `python_functions = test_*`
-  - `asyncio_mode = auto`
-  - `asyncio_default_fixture_loop_scope = function`
-  - `markers`: `asyncio`
-- Keep test locations/naming compatible with `pytest.ini`; avoid custom ad hoc discovery patterns.
-
-### Migration (Alembic)
-
-- Use Alembic for all database schema migrations.
-- Alembic config file: `alembic.ini` (repo root).
-- Typical migration flow:
-  1. Update SQLAlchemy models.
-  2. Generate revision: `uv run alembic revision --autogenerate -m "<message>"`
-  3. Apply migration: `uv run alembic upgrade head`
-  4. Roll back one revision if needed: `uv run alembic downgrade -1`
-- If `alembic/` directory does not exist in a new project, initialize with:
-  - `uv run alembic init alembic`
-- Keep model changes and migration revision files in the same PR.
-
-### Lint & Format
-
-```bash
-make lint     # check only
-make format   # auto format
-```
-
-### Docker Commands
-
-```bash
-make up       # build and run docker-compose
-make down     # stop containers
-make rebuild  # rebuild containers from scratch
-```
-
-## 🔗 Notes
-
-- `PYTHONPATH=src` is used for clean imports.
-- Dockerfile is configured for Python 3.12 with [uv](https://github.com/astral-sh/uv) as the package manager.
-- Alembic is installed for managing schema migrations (`alembic.ini`).
-- For local development, declare environment variables in a single root `.env` file (copy from `.env.example`).
-- App startup can run without `GLOBAL_DATABASE_URL` for non-DB routes.
-- `GLOBAL_DATABASE_URL` must be set (via root `.env` or environment) for DB-backed routes/tests.
-- Do not import global `engine` or `SessionLocal` in feature code; use `Depends(get_session)` for request-scoped DB access.
-- Use `ENV_FILE` only when you need to load a non-default env file path.
-- For deployments (for example Kubernetes), inject environment variables with platform config (Secret/ConfigMap); do not bake `.env` into images.
-- GitLab CI runs `ruff` for linting/formatting and `pytest` for tests from `.gitlab-ci.yml`.
-
-## 📝 Logging
-
-- This template standardizes on **Loguru** for application logging.
-- Central logging setup is implemented in `src/logging_config.py`.
-- Runtime logs are written to `logs/app.log` and stdout by default.
-- Keep logging configuration changes centralized in `src/logging_config.py`.
-- `logging.ini` is a placeholder and is not the active runtime logging configuration in this template.
-
-## ✅ Next Steps
-
-- Create your first domain feature with `make new-feature name=<feature_name>`
-- Write integration/unit tests in `tests/`
-- Initialize an `alembic/` directory and wire models into migrations
-- Implement routers, schemas, and services in your feature modules
 
 ---
 
-Happy hacking! 🚀
+## ⚡ Quickstart
+
+### 1 — Install dependencies
+
+```bash
+make install        # or: uv sync --frozen --no-cache
+```
+
+### 2 — Start the API (Terminal 1)
+
+```bash
+make api            # or: PYTHONPATH=src uv run uvicorn main:app --port 8000 --reload
+```
+
+### 3 — Start the dashboard (Terminal 2)
+
+```bash
+make dashboard      # or: uv run streamlit run dashboard/app.py
+```
+
+Open your browser at `http://localhost:8501`.
+
+---
+
+## 🌐 API Example
+
+```bash
+curl -s -X POST http://localhost:8000/generate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "base_sequence": "ACDEFGHIKLMNPQRSTVWYACDEFGHIKLMNPQRSTVWYACDEFGHIKLMNPQRSTVWY",
+    "mutation_rate": 0.05,
+    "candidates": 10,
+    "seed": 42
+  }' | python -m json.tool
+```
+
+**Response shape**:
+```json
+{
+  "seed": 42,
+  "total_generated": 10,
+  "weights_used": {"bio_weight": 0.3, "carbon_weight": 0.4, "feasibility_weight": 0.3},
+  "ranked_candidates": [
+    {
+      "id": "...",
+      "mutated_sequence": "...",
+      "mutation_positions": [2, 7, 14],
+      "mutation_count": 3,
+      "bio_score": 0.8312,
+      "carbon_score": 0.6741,
+      "feasibility_score": 0.7500,
+      "final_score": 0.7449
+    }
+  ],
+  "_meta": {
+    "disclaimer": "All scores are simulation proxies. Not wet-lab validated predictions.",
+    "sort_order": "final_score DESC, bio_score DESC on tie"
+  }
+}
+```
+
+**Reproduce exact results**: pass `"seed": <value>` from a previous response.
+
+---
+
+## ⚙️ Configuration
+
+| File | Purpose |
+|------|---------|
+| `config/conserved_regions.json` | 0-indexed positions that must not be mutated |
+| `config/weights.json` | Default scoring weights and `max_mutation_threshold` |
+
+Edit these files to adjust defaults without touching code.
+
+---
+
+## 🧱 Architecture
+
+```
+POST /generate
+  └── validate_sequence()
+  └── np.random.default_rng(seed)      ← single RNG for full reproducibility
+  └── generate_candidates()            ← service/generator.py  (swap for BioNeMo)
+  └── score_biological()               ← BLOSUM62 substitution stability
+  └── score_carbon(stability_score)    ← efficiency / deployment / cost proxy
+  └── score_feasibility()              ← difficulty + manufacturability
+  └── rank_candidates()                ← final_score DESC, bio_score DESC on tie
+  └── GenerateResponse
+```
+
+**BioNeMo replacement (Phase 2)**: create `src/enzyme/service/bionemo_generator.py` with the same
+`generate_candidates(...)` signature, then set `GENERATOR_BACKEND=bionemo`. No other files change.
+
+---
+
+## 📐 Scoring Formulas
+
+### Biological (`service/scoring/biological.py`)
+```
+stability      = mean(normalize(BLOSUM62[base_aa][mut_aa]) for each mutation)
+               = mean((BLOSUM62_score + 4) / 7)   -- [0, 1], 1.0 if no mutations
+mutation_pen   = mutation_count / len(sequence)
+conserved_pen  = mutations_in_conserved / mutation_count
+bio_score      = 0.4·stability + 0.4·(1−mutation_pen) + 0.2·(1−conserved_pen)
+```
+
+### Carbon impact (`service/scoring/carbon.py`)
+```
+polar_fraction    = |polar_residues| / len(sequence)       # polar = {S,T,N,Q,D,E,K,R,H,Y}
+charge_neutrality = max(0, 1 − |net_charge_per_residue| / 0.5)   # pH 7.4, CA optimum
+co2_efficiency    = 0.5·polar_fraction + 0.5·charge_neutrality   # deterministic, [0,1]
+production_cost   = min(1.0, mutation_count × 0.01)
+raw               = co2_efficiency × stability − production_cost
+carbon_score      = (raw + 1.0) / 2.0                     # rescale [−1,1] → [0,1]
+```
+
+### Commercial feasibility (`service/scoring/feasibility.py`)
+```
+challenging_frac = (Cys_count + Trp_count) / len(sequence)
+manufacturability= max(0, 1 − challenging_frac / 0.20)    -- C/W expression burden [0,1]
+difficulty       = mutation_count / max_mutation_threshold
+feasibility_score= 0.5·(1−difficulty) + 0.5·manufacturability
+```
+
+---
+
+## 🧰 Makefile Commands
+
+| Command | Action |
+|---|---|
+| `make install` | Sync deps from lockfile |
+| `make api` | Start FastAPI server on :8000 (auto-reload) |
+| `make dashboard` | Start Streamlit dashboard on :8501 |
+| `make test` | Full test suite with coverage |
+| `make test-unit` | Unit tests only |
+| `make test-integration` | Integration tests only |
+| `make lint` | Ruff lint check |
+| `make format` | Ruff auto-format |
+| `make new-feature name=<n>` | Scaffold a new feature module under `src/` |
+| `make up` / `make down` | Docker compose up / down |
+
+---
+
+## 🧪 Tests
+
+```bash
+make test
+# or: PYTHONPATH=src uv run pytest --cov=. --cov-report=term-missing
+```
+
+Coverage target: ≥ 80%
+
+---
+
+## 🔗 Development Notes
+
+- `PYTHONPATH=src` is required for clean imports (set automatically by all `make` commands).
+- Dependency management is **uv-only**. Do not use `requirements.txt` or `pip install`.
+- Logging uses **Loguru** (`from loguru import logger`). Do not use `logging.basicConfig`.
+- This app is **stateless** — no database, no migrations.
+- All scorers are deterministic from sequence composition; only the generator uses the seeded RNG.
+- For local development, copy `.env.example` to `.env` and adjust as needed.
+- `GENERATOR_BACKEND=bionemo` switches the generator from mock to BioNeMo (Phase 2).

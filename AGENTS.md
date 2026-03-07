@@ -4,235 +4,201 @@
 This file gives coding agents a reliable, project-specific operating guide for this repository.
 
 ## Project Snapshot
-- Stack: FastAPI, SQLAlchemy (async), psycopg, Alembic, Loguru, Pytest, Ruff, Docker.
-- App entrypoint: `src/main.py`
-- Source root: `src/` (commands rely on `PYTHONPATH=src` for imports like `from main import app` in tests).
-- Current state: this repo is a scaffold/template. Many module files are intentionally empty placeholders.
+- **Project**: AI-Designed Carbon-Reducing Enzyme Platform — MVP
+- **Stack**: FastAPI, Loguru, Pydantic v2, NumPy, Pandas, Plotly, Streamlit, Pytest, Ruff, Docker.
+- **No database**: this is a stateless application. There is no SQLAlchemy, Alembic, or psycopg in the runtime stack.
+- **App entrypoint**: `src/main.py`
+- **Source root**: `src/` (commands rely on `PYTHONPATH=src` for imports like `from main import app` in tests).
+- **Feature module**: `src/enzyme/` — all domain logic lives here.
+- **Generator backend**: controlled by `GENERATOR_BACKEND` env var (`mock` default, `bionemo` for Phase 2).
 
 ## Repository Layout (Important Paths)
-- `src/main.py`: FastAPI app, lifespan hooks, CORS, root + health endpoints.
-- `src/config.py`: global settings via `pydantic-settings` (`GlobalSettings`).
-- `src/database.py`: async SQLAlchemy DB factory/session dependency (`app.state` lifecycle pattern).
-- `src/logging_config.py`: Loguru setup + shutdown hook.
-- `alembic.ini`: Alembic migration configuration (root-level).
-- `pytest.ini`: pytest runtime configuration (root-level).
-- `templates/feature_scaffold/`: source scaffold for new feature modules.
-- `scripts/new_feature.sh`: feature scaffold generator (used by `make new-feature`).
-- `tests/test_main.py`: baseline API smoke test.
-- `Makefile`: standard local commands.
-- `scripts/bootstrap.sh`: one-shot initializer for turning this template into a real project.
+```
+src/
+├── main.py                      # FastAPI app, lifespan, CORS, router registration
+├── config.py                    # GlobalSettings (GLOBAL_ prefix, pydantic-settings)
+├── logging_config.py            # Loguru setup + shutdown hook
+├── exceptions.py                # Shared exception types (placeholder)
+├── models.py                    # Shared model base (placeholder — no DB)
+├── pagination.py                # Shared pagination helpers (placeholder)
+└── enzyme/                      # Enzyme feature module
+    ├── __init__.py
+    ├── config.py                # Loads config/conserved_regions.json + config/weights.json at startup
+    ├── constants.py             # AMINO_ACIDS, VALID_AA
+    ├── dependencies.py          # FastAPI DI helpers (conserved_positions, max_mutation_threshold)
+    ├── exceptions.py            # EnzymeValidationError, GeneratorError
+    ├── models.py                # EnzymeCandidate (internal domain model)
+    ├── schemas.py               # Pydantic request/response schemas (API contract)
+    ├── router.py                # APIRouter: POST /generate, GET /health
+    ├── utils.py                 # validate_sequence helper
+    └── service/
+        ├── __init__.py
+        ├── generator.py         # Mock candidate generator (swap for BioNeMo in Phase 2)
+        ├── ranking.py           # rank_candidates — weighted sort with tie-breaking
+        └── scoring/
+            ├── __init__.py
+            ├── biological.py    # BLOSUM62-based stability scorer
+            ├── carbon.py        # CO₂ efficiency + charge neutrality scorer
+            └── feasibility.py   # Manufacturability scorer (Cys/Trp fraction)
 
-## Development Architecture (Micro-Service Style)
-- This repository is a micro-service-style FastAPI app: one deployable app, split into feature modules under `src/`.
-- This template keeps `src/` clean; no example feature folders are stored there by default.
-- Create domain-specific feature folders under `src/` using `make new-feature name=<feature_name>`.
-- Keep app-wide/shared concerns in `src/`; keep feature-owned concerns inside `src/<feature>/`.
-- Ownership rule:
-  - If logic/config is reused by multiple features or required by app bootstrap, place it in `src/`.
-  - If logic/config is only for one feature, place it in `src/<feature>/`.
+config/
+├── conserved_regions.json       # 0-indexed positions that must not be mutated
+└── weights.json                 # Default scoring weights + max_mutation_threshold
+
+dashboard/
+└── app.py                       # Streamlit dashboard (calls API via HTTP)
+
+tests/
+├── conftest.py                  # Shared fixtures (sequences, weights, rng)
+├── test_main.py                 # API smoke test (GET /health)
+└── unit/
+    ├── test_biological.py       # BLOSUM62 scorer unit tests
+    ├── test_carbon.py           # Carbon scorer unit tests
+    └── test_feasibility.py      # Feasibility scorer unit tests
+```
+
+Other root-level files:
+- `alembic.ini`: present as template artifact — not used (no DB).
+- `pytest.ini`: pytest runtime configuration.
+- `Makefile`: standard local commands.
+- `scripts/new_feature.sh`: feature scaffold generator (`make new-feature`).
+- `templates/feature_scaffold/`: source scaffold for new feature modules.
+
+## Development Architecture
+- One FastAPI app, split into feature modules under `src/`.
+- `src/enzyme/` is the only feature module. Add new feature folders via `make new-feature name=<name>`.
+- Shared/global concerns stay in `src/`; feature-owned concerns stay in `src/enzyme/`.
+- Ownership rule: if logic is reused by multiple features or needed at bootstrap → `src/`; otherwise → `src/<feature>/`.
 
 ### Global Layer (`src/`)
-- `src/main.py`: app creation, middleware, lifespan, and router registration.
-- `src/config.py`: shared settings object(s), especially `GlobalSettings` with `GLOBAL_` env prefix.
-- `src/database.py`: shared async DB factory/base and `get_session` dependency.
-- `src/models.py`: shared model mixins/base entities used across features.
-- `src/exceptions.py`: shared exception types for cross-feature usage.
-- `src/pagination.py`: shared pagination helpers.
-- `src/logging_config.py`: Loguru setup, sinks, and shutdown handling.
+- `main.py`: app creation, middleware, lifespan hooks, router registration.
+- `config.py`: `GlobalSettings` with `GLOBAL_` env prefix. Currently only `generator_backend` field.
+- `logging_config.py`: Loguru setup, file + stdout sinks, shutdown handler.
 
-### Feature Layer (`src/<feature>/`)
-- `config.py`: feature-only settings (`<FEATURE>_` env prefix recommended), loaded from the shared app environment source (root `.env` for local dev, injected env in deployments).
-- `models.py`: feature-owned ORM models/tables.
-- `schemas.py`: Pydantic request/response/update schemas for that feature.
-- `router.py`: HTTP endpoints for that feature.
-- `service.py` or `service/`: business logic and DB operations for that feature.
-- `dependencies.py`: `Depends(...)` helpers scoped to feature concerns.
-- `exceptions.py`: feature domain exceptions.
-- `constants.py`: feature constants.
-- `utils.py`: small feature-local utility functions.
+### Enzyme Feature Layer (`src/enzyme/`)
+- `config.py`: loads `config/*.json` files once at import via `_EnzymeSettings`. No env prefix needed — config is file-based.
+- `models.py`: `EnzymeCandidate` — internal mutable domain object (not exposed in API responses).
+- `schemas.py`: `GenerateRequest`, `GenerateResponse`, `CandidateResponse`, `ScoringWeights`, `ResponseMeta` — the API contract.
+- `router.py`: thin HTTP layer — validates input, wires service calls, maps to response schemas.
+- `service/generator.py`: mock generator (BioNeMo swap point). Controlled by `GENERATOR_BACKEND` env var.
+- `service/scoring/`: three independent, deterministic scorers (biological, carbon, feasibility).
+- `service/ranking.py`: applies `ScoringWeights` and sorts by `final_score DESC`, `bio_score DESC` on tie.
 
-## Feature Folder Contract
-- Minimum required files for each feature:
-  - `__init__.py`
-  - `router.py`
-  - `schemas.py`
-  - `service.py` or `service/__init__.py`
-- Common optional files (add when needed):
-  - `config.py`
-  - `models.py`
-  - `dependencies.py`
-  - `exceptions.py`
-  - `constants.py`
-  - `utils.py`
-  - `.env.example` (documentation-only when feature-specific variables are needed; runtime still uses shared environment sources)
+## Scoring Pipeline (POST /generate)
+```
+validate_sequence()
+  → generate_candidates()          # mock or bionemo backend
+  → score_biological()             # BLOSUM62 stability
+  → score_carbon(stability_score)  # CO₂ efficiency × stability − production_cost
+  → score_feasibility()            # Cys/Trp manufacturability + mutation difficulty
+  → rank_candidates()              # weighted sort
+  → GenerateResponse
+```
+- Biological scorer runs first; its stability sub-score is passed to the carbon scorer to avoid redundant computation.
+- All scorers output values clamped to [0.0, 1.0].
+- Carbon and feasibility scorers are fully deterministic from sequence composition.
+
+## BioNeMo Swap Point (Phase 2)
+To replace the mock generator:
+1. Create `src/enzyme/service/bionemo_generator.py` implementing `generate_candidates(...)` with the same signature as `generator.py`.
+2. Set `GENERATOR_BACKEND=bionemo` in the environment.
+3. No other files need to change.
 
 ## Implementation Patterns (Required)
-- Config pattern:
-  - Keep global settings in `src/config.py` via `pydantic-settings`.
-  - Keep feature-specific settings in `src/<feature>/config.py`; do not leak feature settings into global config.
-  - For local development, use a single root `.env` file; avoid per-feature `.env` files.
-  - Use `ENV_FILE` only when an alternate env file path is explicitly required.
-  - Prefer importing settings objects over reading env vars ad hoc in routers/services.
-- Database pattern:
-  - Keep engine/sessionmaker factory logic centralized in `src/database.py`.
-  - Keep SQLAlchemy usage async-first and reuse shared `Base` and `get_session`.
-  - Create DB resources in `src/main.py` lifespan startup when `GLOBAL_DATABASE_URL` is set, store them on `app.state`, and resolve sessions through DI (`Depends(get_session)`).
-  - Service startup without `GLOBAL_DATABASE_URL` is acceptable for non-DB routes; DB-backed routes/features still require DB config.
-  - For DB-backed services, validate DB readiness in `src/main.py` lifespan startup and dispose the `app.state.engine` during lifespan shutdown.
-  - `pool_pre_ping` improves pooled-connection health checks at checkout time; it does not replace startup readiness checks.
-  - Do not create per-feature engines/sessionmakers unless explicitly requested.
-- Model pattern:
-  - Put shared/base model primitives in `src/models.py`.
-  - Put domain tables in the owning feature's `models.py`.
-  - Keep cross-feature model coupling explicit and minimal.
-- Schema pattern:
-  - Use feature-local schemas in `src/<feature>/schemas.py`.
-  - Separate input/output/update schemas where appropriate.
-  - Keep validation and serialization rules in schemas, not routers.
-- Router/service pattern:
-  - Keep `router.py` thin: request parsing, dependency wiring, response mapping.
-  - Keep business rules and DB transaction logic in the feature service layer (`service.py` or `service/`).
-  - Use `dependencies.py` for reusable DI objects (auth/session/context).
-- Service modularization pattern:
-  - Start with `service.py` for simple features.
-  - If the feature becomes complex, replace/split into `service/` as a package.
-  - In `service/`, add `__init__.py` and re-export the public service API for clean imports.
-  - Routers and external callers should import from `src.<feature>.service` (package root), not deep service submodules.
+
+### Config pattern
+- Global settings: `src/config.py` via `pydantic-settings` (`GlobalSettings`, `GLOBAL_` prefix).
+- Feature config: `src/enzyme/config.py` reads JSON files. Use `enzyme_settings` singleton in router/service code.
+- Do not read `config/*.json` files directly in router or service code; always go through `enzyme_settings`.
+
+### No-database pattern
+- This app is stateless. Do not add SQLAlchemy, Alembic, or psycopg unless explicitly requested.
+- `src/database.py` exists as a template artifact; do not import it in enzyme code.
+- No `app.state` engine/sessionmaker wiring needed.
+
+### Schema vs model separation
+- `EnzymeCandidate` (`enzyme/models.py`): mutable internal object passed between generator, scorers, and ranker.
+- API schemas (`enzyme/schemas.py`): immutable request/response contracts exposed via HTTP. Never use `EnzymeCandidate` directly in API responses.
+
+### Router/service pattern
+- Keep `router.py` thin: input validation, dependency resolution, response mapping.
+- Keep business logic in `service/` — scoring, generation, ranking.
+- Use `enzyme_settings` (not function arguments) for config values in the router.
+
+### Logging pattern
+- Use **Loguru** (`from loguru import logger`). Never use `logging.basicConfig` or `logging.getLogger`.
+- Logging is configured in `src/logging_config.py`. Do not configure sinks in feature code.
 
 ## Feature Development Checklist
-1. Create a new feature scaffold with `make new-feature name=<feature_name>`.
-2. Define/update feature settings in `src/<feature>/config.py` (only if feature-specific).
-3. Add/update models in `src/<feature>/models.py` (and shared model utilities in `src/models.py` only when truly cross-feature).
-4. Add/update schemas in `src/<feature>/schemas.py`.
-5. Implement business logic in `src/<feature>/service.py` (or `src/<feature>/service/` with `__init__.py` for complex features).
-6. Add endpoints in `src/<feature>/router.py` and wire dependencies from `dependencies.py`.
-7. Register router in `src/main.py`.
-8. Add/adjust tests in `tests/` for happy path and error path behavior.
-
-## Project Initialization (Agents)
-Use this exact flow when initializing a newly cloned template project:
-1. `rm -rf .git`
-2. `git init`
-3. `uv python pin <python version>`
-4. `uv init`
-5. `uv venv`
-6. `make init`
-
-- Before running any initialization step, if the user did not provide a Python version, ask which version they want to use and wait for their answer.
-- During initialization-only requests, stop after `make init` unless the user explicitly asks to run app/tests.
-- `make install` is for lockfile-based sync (`uv sync --frozen --no-cache`) after project metadata/lock are present.
-- `scripts/bootstrap.sh` is intended for interactive human setup; agents should prefer the non-interactive flow above.
+1. Create scaffold: `make new-feature name=<feature_name>`.
+2. Define feature settings in `src/<feature>/config.py` if needed.
+3. Add internal models in `src/<feature>/models.py`.
+4. Add API schemas in `src/<feature>/schemas.py`.
+5. Implement business logic in `src/<feature>/service.py` (or `service/` package).
+6. Add endpoints in `src/<feature>/router.py`.
+7. Register router in `src/main.py` via `app.include_router(...)`.
+8. Add tests in `tests/` covering happy path and error paths.
 
 ## Dependency Management Policy (Required)
-- Use `uv` as the only dependency/environment manager for this repository.
-- Pin project Python version with: `uv python pin <python version>`
-- Create the project virtual environment with: `uv venv`
-- Initialize baseline dependencies for a new project with: `make init`
-- Install a package with: `uv add <package name>`
-- Uninstall a package with: `uv remove <package name>`
-- Fresh-start/sync dependencies with: `uv sync --frozen --no-cache`
-- Use only two dependency scopes:
-  - Runtime (production): `uv add <package>` / `uv remove <package>` / `uv sync --frozen --no-cache --no-dev`
-  - Development: `uv add --dev <package>` / `uv remove --dev <package>` / `uv sync --frozen --no-cache`
-- Classification rule for `--dev`:
-  - Use runtime scope (`uv add`) when the package is required by the running service or imported by app code under `src/`.
-  - Use dev scope (`uv add --dev`) only for non-runtime tooling (tests, lint/format, notebooks, local scripts).
-  - Do not decide scope based on "I am developing now"; decide by whether production runtime needs the package.
-- Examples:
-  - Runtime: `fastapi`, `uvicorn`, `sqlalchemy`, `psycopg`, `pydantic-settings`, `loguru`, `alembic`
-  - Dev-only: `pytest`, `pytest-asyncio`, `ruff`, `ipykernel`, `httpx` (when used only for tests)
-- Do not use `pip install`, `requirements.txt` edits, `requirements/` folders, `poetry add`, `pipenv`, or `conda` workflows for dependency changes.
+- Use `uv` as the only dependency/environment manager.
+- Pin Python version: `uv python pin <version>`
+- Create venv: `uv venv`
+- Add runtime dep: `uv add <package>`
+- Add dev dep: `uv add --dev <package>`
+- Remove dep: `uv remove <package>`
+- Sync from lockfile: `uv sync --frozen --no-cache`
+- Runtime deps: `fastapi`, `uvicorn`, `pydantic`, `pydantic-settings`, `loguru`, `numpy`, `pandas`, `plotly`, `streamlit`, `requests`
+- Dev-only deps: `pytest`, `pytest-asyncio`, `ruff`, `httpx`, `pytest-cov`
+- Do not use `pip install`, `requirements.txt`, `poetry`, `pipenv`, or `conda`.
 
 ## Standard Commands
-- Initialize baseline deps (new project): `make init`
-- Create a feature scaffold: `make new-feature name=<feature_name>`
-- Install deps: `make install`
-- Sync dev deps: `make sync-dev`
-- Sync prod deps: `make sync-prod`
-- Run dev server: `make run`
-- Run tests: `make test`
-- Lint: `make lint`
-- Format: `make format`
-- Docker up/down: `make up` / `make down`
-
-## Linting And Formatting Policy (Required)
-- Linter: Ruff via `uv run ruff check .` (or `make lint`).
-- Formatter: Ruff formatter via `uv run ruff format .` (or `make format`).
-- Before opening/merging changes, run:
-  - `make format`
-  - `make lint`
-  - `make test`
-- Keep CI-compatible behavior: lint must pass with no errors and formatting must be clean (`uv run ruff format --check .` equivalent).
-
-## CI/CD Defaults
-- If a CI runner is not explicitly specified by the user/request, use `k8s` as the default runner.
-- Keep lint/format/test checks in CI aligned with local commands (`make format`, `make lint`, `make test`).
-
-## Coding Conventions for Agents
-- Keep imports and execution compatible with `PYTHONPATH=src`.
-- Preserve the module-oriented structure:
-  - API layer in `router.py`
-  - Business logic in `service.py` or `service/`
-  - Validation contracts in `schemas.py`
-  - DI helpers in `dependencies.py`
-  - Domain errors/constants in `exceptions.py` and `constants.py`
-- For request-driven DB access, use DI (`Depends(get_session)`); do not directly import global engine/session objects in feature code.
-- Add new endpoints by wiring feature routers into `src/main.py` via `app.include_router(...)`.
-- Keep placeholder files lightweight until functionality is required.
-- Avoid adding unrelated refactors in the same change; prefer focused diffs.
+| Command | Action |
+|---|---|
+| `make install` | Sync deps from lockfile (`uv sync --frozen --no-cache`) |
+| `make api` | Start FastAPI server on :8000 with auto-reload |
+| `make dashboard` | Start Streamlit dashboard on :8501 |
+| `make run` | Start FastAPI server (no explicit port) |
+| `make test` | Full test suite with coverage |
+| `make test-unit` | Unit tests only |
+| `make test-integration` | Integration tests only |
+| `make lint` | Ruff lint check |
+| `make format` | Ruff format |
+| `make new-feature name=<n>` | Scaffold a new feature module |
+| `make up` / `make down` | Docker compose up/down |
 
 ## Testing Guidance
-- Test runner: `pytest` (run via `make test`).
-- Put tests under `tests/` using `test_*.py`.
-- `pytest.ini` is the source of truth for test discovery/runtime behavior. Respect these settings:
-  - `pythonpath = src`
-  - `testpaths = tests`
-  - naming: `test_*.py`, `Test*`, `test_*`
-  - `asyncio_mode = auto`
-  - `asyncio_default_fixture_loop_scope = function`
-- For API tests, use `fastapi.testclient.TestClient` unless async behavior requires async clients/fixtures.
-- High coverage is required for new/changed code.
-- Coverage target: aim for >=90% coverage on touched feature/service/router logic and ensure critical paths are tested.
-- Minimum bar for endpoint changes:
-  - status code assertions
-  - happy-path response shape/content checks
-  - edge-case checks when applicable
-  - at least one error-path test when applicable
+- Test runner: `pytest` via `make test`.
+- Tests live under `tests/` using `test_*.py` naming.
+- `pytest.ini` is the source of truth: `pythonpath = src`, `testpaths = tests`, `asyncio_mode = auto`.
+- For API tests use `fastapi.testclient.TestClient`.
+- Coverage target: ≥ 80% on touched scorer/service/router logic.
+- Every endpoint change needs: status code assertion, happy-path response shape check, at least one error-path test.
 
-## Environment & Config
-- For local development, use one root `.env` file at the repository root (copy from `.env.example`).
-- Settings are loaded from process environment variables; when present, the default env file path is the root `.env`.
-- `ENV_FILE` can override the env file path when a custom location is required.
-- Global settings use the `GLOBAL_` prefix (see `src/config.py`).
-- Feature settings must use feature-specific prefixes (for example `USERS_`, `PAYMENTS_`) and read from the same shared environment source.
-- `GLOBAL_DATABASE_URL` is required for DB-backed features.
-- For deployments (for example Kubernetes), inject environment variables via platform configuration (Secret/ConfigMap); do not bake `.env` into images.
-- `.env.example` files are placeholders; keep secrets out of git.
+## Linting and Formatting Policy (Required)
+- Linter + formatter: **Ruff** (`make lint` / `make format`).
+- Before any commit: run `make format`, `make lint`, `make test`.
+- CI runs the same checks — keep local and CI behavior identical.
 
-## Migration (Alembic)
-- Use Alembic for all schema migrations.
-- Migration config file is `alembic.ini` at repo root.
-- Migration workflow:
-  1. Update SQLAlchemy models (feature `models.py` and/or shared `src/models.py`).
-  2. Generate migration: `uv run alembic revision --autogenerate -m "<message>"`
-  3. Apply migration: `uv run alembic upgrade head`
-  4. Roll back one revision (if needed): `uv run alembic downgrade -1`
-- If the `alembic/` directory is missing in a new project, initialize it with `uv run alembic init alembic`.
-- Keep model changes and migration revisions in the same change/PR.
+## CI/CD Defaults
+- Default CI runner: `k8s`.
+- CI pipeline: `.gitlab-ci.yml` runs `make lint` and `make test`.
 
-## Logging
-- Required: use **Loguru** for logging in this repository.
-- Logging is configured in `src/logging_config.py`.
-- Runtime logs are written to `logs/app.log` and stdout.
-- Keep sink/format/rotation changes centralized in `src/logging_config.py`.
-- Do not introduce `logging.basicConfig`, alternate logging frameworks, or `logging.ini`-based runtime config unless explicitly requested.
-- Preserve the shutdown behavior (`shutdown_logging`) when adjusting app lifespan.
+## Environment and Config
+- Local dev: one root `.env` file (copy from `.env.example`).
+- `GLOBAL_` prefix for global settings (see `src/config.py`).
+- `GENERATOR_BACKEND`: `mock` (default) or `bionemo`. Set in `.env` or as env var.
+- For Kubernetes deployments, inject env vars via Secret/ConfigMap. Do not bake `.env` into images.
+
+## Coding Conventions
+- All imports must be compatible with `PYTHONPATH=src`.
+- Use `from loguru import logger` — never `import logging`.
+- Keep scorers deterministic: no RNG inside scoring functions.
+- RNG is created once in the router and passed explicitly to `generate_candidates`.
+- Feature code must not import from `src/database.py`.
+- Routers must not contain scoring or generation logic — delegate to `service/`.
 
 ## Agent Workflow Expectations
-- Before editing, quickly scan related files and keep changes minimal.
-- If user asks to initialize a freshly cloned template, follow the `Project Initialization (Agents)` section.
-- After edits, run the narrowest useful checks first, then broader checks:
-  - targeted tests
-  - `make test`
-  - `make lint`
-- If `make install` fails due to missing project metadata/lock (`pyproject.toml`, `uv.lock`), run the `Project Initialization (Agents)` flow first.
+- Read related files before editing. Keep changes minimal and focused.
+- Run narrowest useful checks first, then `make test`, then `make lint`.
+- Do not add DB/SQLAlchemy/Alembic unless the user explicitly requests it.
+- Do not introduce `logging.basicConfig` or alternate logging frameworks.
