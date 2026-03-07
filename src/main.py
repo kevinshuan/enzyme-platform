@@ -2,9 +2,15 @@
 import gc
 import warnings
 from contextlib import asynccontextmanager
+from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# Load .env before any module reads os.getenv() so BIONEMO_API_KEY etc. are available
+_env_file = Path(__file__).resolve().parents[1] / ".env"
+load_dotenv(_env_file, override=False)
 
 from enzyme.config import enzyme_settings
 from enzyme.router import router as enzyme_router

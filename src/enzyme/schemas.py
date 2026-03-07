@@ -76,6 +76,32 @@ class ResponseMeta(BaseModel):
     sort_order: str = "final_score DESC, bio_score DESC on tie"
 
 
+class FoldRequest(BaseModel):
+    """Request body for POST /fold."""
+
+    sequence: str = Field(..., description="Amino acid sequence to fold with ESMFold")
+
+
+class FoldResponse(BaseModel):
+    """Response body for POST /fold."""
+
+    sequence: str
+    pdb: str = Field(..., description="ESMFold PDB structure as plain text")
+    plddt: list[float] = Field(..., description="Per-residue pLDDT scores (0–100)")
+    mean_plddt: float = Field(..., description="Mean pLDDT across all residues")
+
+
+class JobStatus(BaseModel):
+    """Async job status for POST /generate."""
+
+    job_id: str
+    status: str = Field(..., description="pending | running | complete | error")
+    progress: int = Field(default=0, description="Candidates scored so far")
+    total: int = Field(default=0, description="Total candidates to generate")
+    result: Optional["GenerateResponse"] = None
+    error: Optional[str] = None
+
+
 class GenerateResponse(BaseModel):
     """Response body for POST /generate."""
 
