@@ -18,8 +18,6 @@ import requests
 from loguru import logger
 
 _ALPHAFOLD_API_BASE = "https://alphafold.ebi.ac.uk/api"
-_ALPHAFOLD_FILES_BASE = "https://alphafold.ebi.ac.uk/files"
-_AF_VERSION = "v4"
 _REQUEST_TIMEOUT = 15  # seconds
 
 
@@ -68,9 +66,8 @@ def fetch_plddt(uniprot_id: str) -> list[float]:
     entry = fetch_alphafold_entry(uniprot_id)
     alphafold_id = entry["entryId"]
 
-    confidence_url = (
-        f"{_ALPHAFOLD_FILES_BASE}/{alphafold_id}-confidence_{_AF_VERSION}.json"
-    )
+    # Use the URL directly from the API response — version-agnostic
+    confidence_url = entry["plddtDocUrl"]
     response = requests.get(confidence_url, timeout=_REQUEST_TIMEOUT)
     response.raise_for_status()
 

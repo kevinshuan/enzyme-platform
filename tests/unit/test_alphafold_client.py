@@ -22,6 +22,7 @@ _FAKE_ENTRY = {
     "uniprotAccession": "P00918",
     "uniprotStart": 1,
     "uniprotEnd": 260,
+    "plddtDocUrl": "https://alphafold.ebi.ac.uk/files/AF-P00918-F1-confidence_v6.json",
 }
 
 _FAKE_PLDDT = [95.0, 88.0, 92.0, 45.0, 71.0, 91.0]  # 6 residues
@@ -88,11 +89,12 @@ class TestFetchPlddt:
             plddt = fetch_plddt("P00918")
         assert all(isinstance(s, float) for s in plddt)
 
-    def test_calls_confidence_url(self):
+    def test_calls_confidence_url_from_entry(self):
+        # Client must use plddtDocUrl from the entry, not a hardcoded version string
         with patch("requests.get", side_effect=_mock_get) as mock_get:
             fetch_plddt("P00918")
         urls = [call[0][0] for call in mock_get.call_args_list]
-        assert any("confidence_v4" in url for url in urls)
+        assert any("AF-P00918-F1-confidence_v6" in url for url in urls)
 
     def test_uses_alphafold_id_from_entry(self):
         with patch("requests.get", side_effect=_mock_get) as mock_get:
