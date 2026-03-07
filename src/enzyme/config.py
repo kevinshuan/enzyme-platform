@@ -1,14 +1,23 @@
-"""Enzyme feature configuration — loads JSON config files at import time."""
+"""Enzyme feature configuration — loads at import time.
+
+Conserved positions source (priority order):
+  1. ALPHAFOLD_UNIPROT_ID env var set → fetch from AlphaFold DB API
+  2. Fallback → config/conserved_regions.json
+
+Weights and mutation threshold always come from config/weights.json.
+"""
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
-# Config directory is at repo root (sibling of src/)
+from loguru import logger
+
 _CONFIG_DIR = Path(__file__).resolve().parents[2] / "config"
 
 
-def _load_conserved_positions() -> list[int]:
+def _load_conserved_positions_from_json() -> list[int]:
     path = _CONFIG_DIR / "conserved_regions.json"
     if not path.exists():
         raise RuntimeError(
@@ -23,6 +32,31 @@ def _load_conserved_positions() -> list[int]:
         return positions
     except (KeyError, ValueError, json.JSONDecodeError) as exc:
         raise RuntimeError(f"Malformed config/conserved_regions.json: {exc}") from exc
+
+
+def _load_conserved_positions() -> list[int]:
+    """Load conserved positions from AlphaFold DB if configured, else from JSON."""
+    uniprot_id = os.getenv("ALPHAFOLD_UNIPROT_ID", "").strip()
+    if not uniprot_id:
+        logger.info("ALPHAFOLD_UNIPROT_ID not set — loading conserved positions from JSON.")
+        return _load_conserved_positions_from_json()
+
+    threshold = float(os.getenv("ALPHAFOLD_PLDDT_THRESHOLD", "90.0"))
+    logger.info(
+        "ALPHAFOLD_UNIPROT_ID={} — fetching conserved positions from AlphaFold DB (threshold={:.0f}).",
+        uniprot_id,
+        threshold,
+    )
+    try:
+        from enzyme.service.alphafold_client import fetch_conserved_positions
+        return fetch_conserved_positions(uniprot_id, threshold=threshold)
+    except Exception as exc:
+        logger.warning(
+            "AlphaFold DB fetch failed ({}): {} — falling back to conserved_regions.json.",
+            type(exc).__name__,
+            exc,
+        )
+        return _load_conserved_positions_from_json()
 
 
 def _load_weights_config() -> tuple[float, float, float, int]:
