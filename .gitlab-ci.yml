@@ -1,0 +1,33 @@
+image: python:3.11
+
+stages:
+  - test
+  - lint
+
+default:
+  tags:
+    - k8s
+
+before_script:
+  - python -m pip install --upgrade pip
+  - pip install uv
+  - |
+    if [ ! -f pyproject.toml ]; then
+      uv init
+    fi
+    if [ -f uv.lock ]; then
+      uv sync --frozen --no-cache
+    else
+      make init
+    fi
+
+lint:
+  stage: lint
+  script:
+    - uv run ruff check .
+    - uv run ruff format --check .
+
+test:
+  stage: test
+  script:
+    - PYTHONPATH=src uv run pytest tests --disable-warnings
