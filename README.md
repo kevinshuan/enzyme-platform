@@ -64,13 +64,13 @@ make install        # or: uv sync --frozen --no-cache
 ### 2 — Start the API (Terminal 1)
 
 ```bash
-make api            # or: PYTHONPATH=src uv run uvicorn main:app --port 8000 --reload
+make api            # or: PYTHONPATH=src uv run python -m uvicorn src.main:app --port 8000 --reload
 ```
 
 ### 3 — Start the dashboard (Terminal 2)
 
 ```bash
-make dashboard      # or: uv run streamlit run dashboard/app.py
+make dashboard      # or: uv run python -m streamlit run dashboard/app.py
 ```
 
 Open your browser at `http://localhost:8501`.
